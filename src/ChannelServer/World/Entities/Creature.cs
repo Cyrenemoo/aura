@@ -229,6 +229,12 @@ namespace Aura.Channel.World.Entities
 				if (!this.Client.Account.PremiumServices.HasPremiumService)
 					return false;
 
+				// Dead characters should not be moved to the Soul Stream,
+				// as they will get stuck there, not being able to move
+				// or revive.
+				if (this.IsDead)
+					return false;
+
 				var now = DateTime.Now;
 
 				// No present if today is not the player's birthday or the character
@@ -686,12 +692,12 @@ namespace Aura.Channel.World.Entities
 		public int LeftAttackMaxMod { get { return (this.LeftHand != null ? this.LeftHand.OptionInfo.AttackMax : 0); } }
 
 		/// <summary>
-		/// Used for title bonuses.
+		/// Used for title, enchant, and other bonuses.
 		/// </summary>
 		public int AttackMinMod { get { return (int)this.StatMods.Get(Stat.AttackMinMod); } }
 
 		/// <summary>
-		/// Used for title bonuses.
+		/// Used for title, enchant, and other bonuses.
 		/// </summary>
 		public int AttackMaxMod { get { return (int)this.StatMods.Get(Stat.AttackMaxMod); } }
 
@@ -1939,8 +1945,8 @@ namespace Aura.Channel.World.Entities
 		public float GetRndRangedDamage()
 		{
 			// Base damage
-			float min = this.AttackMinBase;
-			float max = this.AttackMaxBase;
+			float min = this.AttackMinBase + this.AttackMinMod;
+			float max = this.AttackMaxBase + this.AttackMaxMod;
 
 			// Weapon
 			min += (this.RightHand == null ? 0 : this.RightHand.OptionInfo.AttackMin);
