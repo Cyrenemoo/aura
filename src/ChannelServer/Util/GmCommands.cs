@@ -107,6 +107,7 @@ namespace Aura.Channel.Util
 			Add(99, 99, "nosave", "", Localization.Get("Marks creature's controlled by the target's client to not be saved on logout."), HandleNoSave);
 			Add(99, -1, "dbgregion", "[scale=20] [entityIds|propIds]", Localization.Get("Creates an image of the current region and its and client events."), HandleDebugRegion);
 			Add(99, -1, "syncguilds", "", Localization.Get("Synchronizes guilds with database."), HandleSyncGuilds);
+			Add(99, 99, "rp", "[actor name]", Localization.Get("Starts or ends role-playing."), HandleRolePlay);
 
 			// Aliases
 			AddAlias("item", "drop");
@@ -1137,7 +1138,7 @@ namespace Aura.Channel.Util
 
 		private CommandResult HandleCondition(ChannelClient client, Creature sender, Creature target, string message, IList<string> args)
 		{
-			var conditions = new ulong[6];
+			var conditions = new ulong[7];
 
 			// Read arguments
 			for (int i = 1; i < args.Count; ++i)
@@ -1156,6 +1157,7 @@ namespace Aura.Channel.Util
 			target.Conditions.Deactivate(ConditionsD.All); target.Conditions.Activate((ConditionsD)conditions[3]);
 			target.Conditions.Deactivate(ConditionsE.All); target.Conditions.Activate((ConditionsE)conditions[4]);
 			target.Conditions.Deactivate(ConditionsF.All); target.Conditions.Activate((ConditionsF)conditions[5]);
+			target.Conditions.Deactivate(ConditionsG.All); target.Conditions.Activate((ConditionsG)conditions[6]);
 
 			if (args.Count > 1)
 				Send.ServerMessage(sender, Localization.Get("Applied condition."));
@@ -2299,6 +2301,50 @@ namespace Aura.Channel.Util
 			ChannelServer.Instance.GuildManager.SynchronizeGuilds();
 
 			Send.ServerMessage(sender, Localization.Get("Synchronized guilds."));
+
+			return CommandResult.Okay;
+		}
+
+		private CommandResult HandleRolePlay(ChannelClient client, Creature sender, Creature target, string message, IList<string> args)
+		{
+			// No arguments, check if RP can end.
+			if (args.Count < 2)
+			{
+				if (!target.IsRpCharacter)
+				{
+					Send.ServerMessage(sender, Localization.Get("Canceling RP failed, target is not role-playing."));
+					return CommandResult.Fail;
+				}
+
+				// End
+				(target as RpCharacter).End();
+
+				return CommandResult.Okay;
+			}
+
+			// Check if already RPing.
+			if (target.IsRpCharacter)
+			{
+				Send.ServerMessage(sender, Localization.Get("Target is already role-playing."));
+				return CommandResult.Fail;
+			}
+
+			// Get actor data
+			var actorName = args[1];
+			var actorData = AuraData.ActorDb.Find(actorName);
+			if (actorData == null && (actorData = AuraData.ActorDb.Find('#' + actorName)) == null)
+			{
+				Send.ServerMessage(sender, Localization.Get("Actor data for '{0}' not found."), actorName);
+				return CommandResult.Fail;
+			}
+
+			// Create RP character
+			var rpCharacter = new RpCharacter(actorData, target, null);
+			rpCharacter.Start();
+
+			Send.ServerMessage(sender, Localization.Get("Role-play started, use same command without actor argument to stop."));
+			if (sender != target)
+				Send.ServerMessage(target, Localization.Get("{0} started a role-play session for you."), sender.Name);
 
 			return CommandResult.Okay;
 		}
