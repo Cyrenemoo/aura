@@ -50,6 +50,28 @@ Give Caitin a Golden Egg as a gift to receive the *Egg from Caitin*.
 Drop this egg onto the Alby dungeon altar to play a chick on its search
 for its mother.
 
+### Ranald
+
+Befriend Ranald by talking to him and giving him gifts until when you
+talk to him about his "Private Story", he gives you the item *Ranald's
+Medal*. Drop the item on the Rabbie dungeon altar to enter the dungeon
+as Ranald.
+
+The dungeon is a normal Rabbie, with a Succubuss at the end.
+
+Two-player
+-----------------------------------------------------------------------------
+
+### Tracy and Walter
+
+Befriend Tracy by talking to him and giving him gifts until when you
+talk to him about his "Private Story", he gives you the item *Tracy's
+Hatchet*.
+
+Take the item and a friend to Ciar dungeon and drop the item onto the altar
+to enter the dungeon. You will play as Tracy and your friend as Walter.
+
+
 <style>
 	.toc-level2 {
 		display: block;

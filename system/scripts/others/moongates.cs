@@ -342,6 +342,12 @@ public class MoonGateScript : GeneralScript
 			if (!creature.Keywords.Has(gate.Keyword))
 				creature.Keywords.Give(gate.Keyword);
 
+			// Enabled/Disable Ceo gate
+			if (!creature.Keywords.Has("_moontunnel_ceoisland") && IsEnabled("G2"))
+				creature.Keywords.Give("_moontunnel_ceoisland");
+			else if (creature.Keywords.Has("_moontunnel_ceoisland") && !IsEnabled("G2"))
+				creature.Keywords.Remove("_moontunnel_ceoisland");
+
 			// Get list of moon gates the creature can use
 			var freeRoaming = (FreeRoaming || creature.Keywords.Has("freemoongate"));
 			var mygates = gates.Values.Where(a => CanWarpTo(creature, a));
@@ -516,7 +522,7 @@ public class MoonGateScript : GeneralScript
 		creature.Client.Send(packet);
 	}
 
-	private void UpdateCurrentGates()
+	private void UpdateCurrentGates(ErinnTime now)
 	{
 		var table = GetTable();
 
@@ -527,6 +533,10 @@ public class MoonGateScript : GeneralScript
 
 		currentGateKeyword = table[cycles % table.Length];
 		nextGateKeyword = table[(cycles + 1) % table.Length];
+
+		// During the day the "current" gate is the next gate.
+		if (now.IsDay)
+			currentGateKeyword = nextGateKeyword;
 
 		if (!gatesStr.TryGetValue(currentGateKeyword, out currentGate))
 			throw new Exception("Gate '" + currentGateKeyword + "' not found.");
@@ -540,7 +550,7 @@ public class MoonGateScript : GeneralScript
 		var firstRun = (currentGateKeyword == null);
 
 		if (now.IsDusk || currentGateKeyword == null)
-			UpdateCurrentGates();
+			UpdateCurrentGates(now);
 
 		// Just update gates on first run, to set initial state.
 		if (firstRun)

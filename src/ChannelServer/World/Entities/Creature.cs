@@ -22,6 +22,7 @@ using System.Threading;
 using Aura.Channel.Scripting.Scripts;
 using Aura.Shared.Database;
 using Aura.Channel.World.Dungeons;
+using Aura.Channel.World.GameEvents;
 
 namespace Aura.Channel.World.Entities
 {
@@ -189,6 +190,11 @@ namespace Aura.Channel.World.Entities
 		/// Time of last login.
 		/// </summary>
 		public DateTime LastLogin { get; set; }
+
+		/// <summary>
+		/// The time the creature has been active in seconds.
+		/// </summary>
+		public long PlayTime { get; set; }
 
 		/// <summary>
 		/// How many times the character rebirthed.
@@ -1394,8 +1400,11 @@ namespace Aura.Channel.World.Entities
 				speed = ZombieSpeed;
 
 			// Hurry condition
-			var hurry = this.Conditions.GetExtraVal(169);
-			speed *= 1 + (hurry / 100f);
+			if (!this.IsWalking && this.Conditions.Has(ConditionsC.Hurry))
+			{
+				var hurry = this.Conditions.GetExtraVal(169);
+				speed *= 1 + (hurry / 100f);
+			}
 
 			return speed;
 		}
@@ -1545,6 +1554,8 @@ namespace Aura.Channel.World.Entities
 			this.StatMods.OnSecondsTimeTick(time);
 			this.Conditions.OnSecondsTimeTick(time);
 			this.Skills.OnSecondsTimeTick(time);
+
+			this.PlayTime++;
 		}
 
 		/// <summary>
@@ -2030,23 +2041,21 @@ namespace Aura.Channel.World.Entities
 				_totalHits = Interlocked.Increment(ref _totalHits);
 			}
 
-			var equip = this.Inventory.GetEquipment();
-
-			// Give proficiency to random main armor
-			var mainArmors = equip.Where(a => a.Info.Pocket.IsMainArmor());
-			if (mainArmors.Count() != 0)
+			// Update equip
+			var mainArmors = this.Inventory.GetMainEquipment(a => a.Info.Pocket.IsMainArmor());
+			if (mainArmors.Length != 0)
 			{
+				// Select a random armor item to gain proficiency and lose
+				// durability, as the one that was "hit" by the damage.
 				var item = mainArmors.Random();
-				var amount = Item.GetProficiencyGain(this.Age, ProficiencyGainType.Damage);
-				this.Inventory.AddProficiency(item, amount);
-			}
 
-			// Reduce durability of random item
-			if (equip.Length != 0)
-			{
-				var item = equip.Random();
-				var amount = RandomProvider.Get().Next(1, 30);
-				this.Inventory.ReduceDurability(item, amount);
+				// Give proficiency
+				var profAmount = Item.GetProficiencyGain(this.Age, ProficiencyGainType.Damage);
+				this.Inventory.AddProficiency(item, profAmount);
+
+				// Reduce durability
+				var duraAmount = RandomProvider.Get().Next(1, 30);
+				this.Inventory.ReduceDurability(item, duraAmount);
 			}
 
 			// Kill if life too low
@@ -2108,11 +2117,25 @@ namespace Aura.Channel.World.Entities
 		/// <param name="pos"></param>
 		private void DropGold(Creature killer, Random rnd, Position pos)
 		{
-			if (rnd.NextDouble() >= ChannelServer.Instance.Conf.World.GoldDropChance)
+			var goldDropChance = ChannelServer.Instance.Conf.World.GoldDropChance;
+
+			// Add global bonus
+			float goldRateBonus;
+			string bonuses;
+			if (ChannelServer.Instance.GameEventManager.GlobalBonuses.GetBonusMultiplier(GlobalBonusStat.GoldDropRate, out goldRateBonus, out bonuses))
+				goldDropChance *= goldRateBonus;
+
+			// Check if drop
+			if (rnd.NextDouble() >= goldDropChance)
 				return;
 
 			// Random base amount
 			var amount = rnd.Next(this.Drops.GoldMin, this.Drops.GoldMax + 1);
+
+			// Add global bonus
+			float goldDropBonus;
+			if (ChannelServer.Instance.GameEventManager.GlobalBonuses.GetBonusMultiplier(GlobalBonusStat.GoldDropAmount, out goldDropBonus, out bonuses))
+				amount = (int)(amount * goldDropBonus);
 
 			if (amount > 0)
 			{
@@ -2126,7 +2149,20 @@ namespace Aura.Channel.World.Entities
 				if (ErinnTime.Now.Month == ErinnMonth.Imbolic)
 					luckyChance += 0.05;
 
-				if (luckyChance < ChannelServer.Instance.Conf.World.HugeLuckyFinishChance)
+				var hugeLuckyFinishChance = ChannelServer.Instance.Conf.World.HugeLuckyFinishChance;
+				var bigLuckyFinishChance = ChannelServer.Instance.Conf.World.BigLuckyFinishChance;
+				var luckyFinishChance = ChannelServer.Instance.Conf.World.LuckyFinishChance;
+
+				// Add global bonus
+				float luckyDropBonus;
+				if (ChannelServer.Instance.GameEventManager.GlobalBonuses.GetBonusMultiplier(GlobalBonusStat.LuckyFinishRate, out luckyDropBonus, out bonuses))
+				{
+					hugeLuckyFinishChance *= luckyDropBonus;
+					bigLuckyFinishChance *= luckyDropBonus;
+					luckyFinishChance *= luckyDropBonus;
+				}
+
+				if (luckyChance < hugeLuckyFinishChance)
 				{
 					amount *= 100;
 					finish = LuckyFinish.Lucky;
@@ -2134,7 +2170,7 @@ namespace Aura.Channel.World.Entities
 					Send.CombatMessage(killer, Localization.Get("Huge Lucky Finish!!"));
 					Send.Notice(killer, Localization.Get("Huge Lucky Finish!!"));
 				}
-				else if (luckyChance < ChannelServer.Instance.Conf.World.BigLuckyFinishChance)
+				else if (luckyChance < bigLuckyFinishChance)
 				{
 					amount *= 5;
 					finish = LuckyFinish.BigLucky;
@@ -2142,7 +2178,7 @@ namespace Aura.Channel.World.Entities
 					Send.CombatMessage(killer, Localization.Get("Big Lucky Finish!!"));
 					Send.Notice(killer, Localization.Get("Big Lucky Finish!!"));
 				}
-				else if (luckyChance < ChannelServer.Instance.Conf.World.LuckyFinishChance)
+				else if (luckyChance < luckyFinishChance)
 				{
 					amount *= 2;
 					finish = LuckyFinish.HugeLucky;
@@ -2200,8 +2236,28 @@ namespace Aura.Channel.World.Entities
 		private void DropItems(Creature killer, Random rnd, Position pos)
 		{
 			// Normal
+			this.DropItems(killer, rnd, pos, this.Drops.Drops);
+
+			// Event
+			var eventDrops = ChannelServer.Instance.GameEventManager.GlobalBonuses.GetDrops(this);
+			if (eventDrops.Count != 0)
+				this.DropItems(killer, rnd, pos, eventDrops);
+
+			// Static
+			foreach (var item in this.Drops.StaticDrops)
+				item.Drop(this.Region, pos, Item.DropRadius, killer, false);
+
+			this.Drops.ClearStaticDrops();
+		}
+
+		/// <summary>
+		/// Handles dropping of items in given collection.
+		/// </summary>
+		/// <param name="dataCollection"></param>
+		private void DropItems(Creature killer, Random rnd, Position pos, IEnumerable<DropData> dataCollection)
+		{
 			var dropped = new HashSet<int>();
-			foreach (var dropData in this.Drops.Drops)
+			foreach (var dropData in dataCollection)
 			{
 				if (dropData == null || !AuraData.ItemDb.Exists(dropData.ItemId))
 				{
@@ -2209,15 +2265,24 @@ namespace Aura.Channel.World.Entities
 					continue;
 				}
 
-				var dropRate = dropData.Chance * ChannelServer.Instance.Conf.World.DropRate;
+				var dropRate = dropData.Chance;
 				var dropChance = rnd.NextDouble() * 100;
 				var month = ErinnTime.Now.Month;
+
+				// Add global bonus
+				float itemDropBonus;
+				string bonuses;
+				if (ChannelServer.Instance.GameEventManager.GlobalBonuses.GetBonusMultiplier(GlobalBonusStat.ItemDropRate, out itemDropBonus, out bonuses))
+					dropRate *= itemDropBonus;
 
 				// Tuesday: Increase in dungeon item drop rate.
 				// Wednesday: Increase in item drop rate from animals and nature.
 				// +50%, bonus is unofficial.
 				if ((month == ErinnMonth.Baltane && this.Region.IsDungeon) || (month == ErinnMonth.AlbanHeruin && !this.Region.IsDungeon))
 					dropRate *= 1.5f;
+
+				// Add conf
+				dropRate *= ChannelServer.Instance.Conf.World.DropRate;
 
 				if (dropChance < dropRate)
 				{
@@ -2226,74 +2291,12 @@ namespace Aura.Channel.World.Entities
 						continue;
 
 					var item = new Item(dropData);
-
-					// Equip stat modification
-					// http://wiki.mabinogiworld.com/view/Category:Weapons
-					if (item.HasTag("/righthand/weapon/|/twohand/weapon/"))
-					{
-						var num = rnd.Next(100);
-
-						// Durability
-						if (num == 0)
-							item.OptionInfo.DurabilityMax += 4000;
-						else if (num <= 5)
-							item.OptionInfo.DurabilityMax += 3000;
-						else if (num <= 10)
-							item.OptionInfo.DurabilityMax += 2000;
-						else if (num <= 25)
-							item.OptionInfo.DurabilityMax += 1000;
-
-						// Attack
-						if (num == 0)
-						{
-							item.OptionInfo.AttackMin += 3;
-							item.OptionInfo.AttackMax += 3;
-						}
-						else if (num <= 30)
-						{
-							item.OptionInfo.AttackMin += 2;
-							item.OptionInfo.AttackMax += 2;
-						}
-						else if (num <= 60)
-						{
-							item.OptionInfo.AttackMin += 1;
-							item.OptionInfo.AttackMax += 1;
-						}
-
-						// Crit
-						if (num == 0)
-							item.OptionInfo.Critical += 3;
-						else if (num <= 30)
-							item.OptionInfo.Critical += 2;
-						else if (num <= 60)
-							item.OptionInfo.Critical += 1;
-
-						// Balance
-						if (num == 0)
-							item.OptionInfo.Balance = (byte)Math.Max(0, item.OptionInfo.Balance - 12);
-						else if (num <= 10)
-							item.OptionInfo.Balance = (byte)Math.Max(0, item.OptionInfo.Balance - 10);
-						else if (num <= 30)
-							item.OptionInfo.Balance = (byte)Math.Max(0, item.OptionInfo.Balance - 8);
-						else if (num <= 50)
-							item.OptionInfo.Balance = (byte)Math.Max(0, item.OptionInfo.Balance - 6);
-						else if (num <= 70)
-							item.OptionInfo.Balance = (byte)Math.Max(0, item.OptionInfo.Balance - 4);
-						else if (num <= 90)
-							item.OptionInfo.Balance = (byte)Math.Max(0, item.OptionInfo.Balance - 2);
-					}
-
+					item.ModifyEquipStats(rnd);
 					item.Drop(this.Region, pos, Item.DropRadius, killer, false);
 
 					dropped.Add(dropData.ItemId);
 				}
 			}
-
-			// Static
-			foreach (var item in this.Drops.StaticDrops)
-				item.Drop(this.Region, pos, Item.DropRadius, killer, false);
-
-			this.Drops.ClearStaticDrops();
 		}
 
 		/// <summary>
@@ -2344,7 +2347,18 @@ namespace Aura.Channel.World.Entities
 				if (levelStats == null)
 					continue;
 
-				this.AbilityPoints += (short)Math2.Clamp(0, short.MaxValue, levelStats.AP * ChannelServer.Instance.Conf.World.LevelApRate);
+				var addAp = levelStats.AP;
+
+				// Add global bonus
+				float bonusMultiplier;
+				string bonuses;
+				if (ChannelServer.Instance.GameEventManager.GlobalBonuses.GetBonusMultiplier(GlobalBonusStat.LevelUpAp, out bonusMultiplier, out bonuses))
+					addAp = (int)(addAp * bonusMultiplier);
+
+				// Add conf
+				addAp = (int)(addAp * ChannelServer.Instance.Conf.World.LevelApRate);
+
+				this.AbilityPoints += (short)addAp;
 				this.LifeMaxBase += levelStats.Life;
 				this.ManaMaxBase += levelStats.Mana;
 				this.StaminaMaxBase += levelStats.Stamina;
@@ -2685,12 +2699,29 @@ namespace Aura.Channel.World.Entities
 			var cp = this.CombatPower;
 			var otherCp = compareCreature.CombatPower;
 
-			if (otherCp < cp * 0.8f) return PowerRating.Weakest;
-			if (otherCp < cp * 1.0f) return PowerRating.Weak;
-			if (otherCp < cp * 1.4f) return PowerRating.Normal;
-			if (otherCp < cp * 2.0f) return PowerRating.Strong;
-			if (otherCp < cp * 3.0f) return PowerRating.Awful;
-			return PowerRating.Boss;
+			var result = PowerRating.Boss;
+
+			if (otherCp < cp * 0.8f) result = PowerRating.Weakest;
+			else if (otherCp < cp * 1.0f) result = PowerRating.Weak;
+			else if (otherCp < cp * 1.4f) result = PowerRating.Normal;
+			else if (otherCp < cp * 2.0f) result = PowerRating.Strong;
+			else if (otherCp < cp * 3.0f) result = PowerRating.Awful;
+
+			// Weaken condition
+			if (this.Conditions.Has(ConditionsA.Weaken))
+			{
+				var levels = 1;
+				var wkn_lv = this.Conditions.GetExtraField(31, "WKN_LV");
+				if (wkn_lv != null)
+					levels = (byte)wkn_lv;
+
+				result += levels;
+			}
+
+			if (result > PowerRating.Boss)
+				result = PowerRating.Boss;
+
+			return result;
 		}
 
 		/// <summary>
@@ -2971,11 +3002,18 @@ namespace Aura.Channel.World.Entities
 		public override void Disappear()
 		{
 			this.Dispose();
-
-			if (this.Region != Region.Limbo)
-				this.Region.RemoveCreature(this);
+			this.RemoveFromRegion();
 
 			base.Disappear();
+		}
+
+		/// <summary>
+		/// Removes creature from its current region.
+		/// </summary>
+		public void RemoveFromRegion()
+		{
+			if (this.Region != Region.Limbo)
+				this.Region.RemoveCreature(this);
 		}
 
 		/// <summary>
@@ -3317,6 +3355,27 @@ namespace Aura.Channel.World.Entities
 						result = tracker;
 						top = tracker.Damage;
 					}
+				}
+			}
+
+			return result;
+		}
+
+		/// <summary>
+		/// Returns all creatures that have hit this creature and are still
+		/// in the same region.
+		/// </summary>
+		/// <returns></returns>
+		public List<Creature> GetAllHitters()
+		{
+			var result = new List<Creature>();
+
+			lock (_hitTrackers)
+			{
+				foreach (var tracker in _hitTrackers.Values)
+				{
+					if (tracker.Attacker.Region == this.Region)
+						result.Add(tracker.Attacker);
 				}
 			}
 

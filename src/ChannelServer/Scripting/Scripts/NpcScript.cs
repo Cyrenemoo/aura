@@ -230,6 +230,10 @@ namespace Aura.Channel.Scripting.Scripts
 			{
 				var score = this.GetGiftReaction(gift);
 
+				// Debug output
+				if (this.Player.IsDev)
+					this.Msg(string.Format("-Debug-<br/>Reaction: {0}<br/>Score: {1}", this.NPC.GiftWeights.CalculateScore(gift), score));
+
 				await Hook("before_gift", gift, score);
 
 				await this.Gift(gift, score);
@@ -254,7 +258,7 @@ namespace Aura.Channel.Scripting.Scripts
 		/// <returns></returns>
 		protected virtual async Task Gift(Item gift, GiftReaction reaction)
 		{
-			this.Msg("Thank you.");
+			this.Msg(Localization.Get("Thank you."));
 
 			await Task.Yield();
 		}
@@ -1669,6 +1673,10 @@ namespace Aura.Channel.Scripting.Scripts
 				if (result.Item.IsBlessed)
 					useRate = 100 - ((100 - useRate) / 2);
 
+				// 100% Repair Event
+				if (IsEventActive("all_repairrate_100"))
+					useRate = 100;
+
 				// Success
 				if (this.Random(100) < useRate)
 				{
@@ -1895,6 +1903,11 @@ namespace Aura.Channel.Scripting.Scripts
 						// CTBONUS:2:40;CTSPEED:4:750;MTWR:1:1;
 						var collectionBonusBuff = result.Item.MetaData1.GetShort("CTBONUS");
 						result.Item.MetaData1.SetShort("CTBONUS", (short)(collectionBonusBuff + effect.Value[0]));
+						break;
+
+					case "CollectionBonusProduct":
+						// CTBONUSPT:4:64004;CTBONUS:2:20;
+						result.Item.MetaData1.SetInt("CTBONUSPT", (int)effect.Value[0]);
 						break;
 
 					case "CollectionSpeed":
